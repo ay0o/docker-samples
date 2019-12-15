@@ -1,0 +1,34 @@
+# This sample Dockerfile builds a Go app using dependencies hosted in a private repository
+
+FROM golang:1.13.0-stretch AS builder
+
+ENV GOPRIVATE=git.example.com
+
+# Go dependencies work with SSH, so need to pass a valid key to get the them
+# --build-arg ssh_prv_key=$(cat <path_to_key>)
+# Bear in mind that the intermediary layer will have the key on plain text. This is not big deal, you're not pushing this image nowhere outside of the build host.
+ARG ssh_prv_key
+RUN mkdir /root/.ssh \ 
+ && echo "$ssh_prv_key" > /root/.ssh/id_rsa \
+ && chmod 400 /root/.ssh/id_rsa \
+ # Port and User might be removed if don't apply to your case, `StrictHostKeyChecking no` because `go mod download` 
+ && printf 'Host git.example.com\n    Port <SSH_PORT>\n    User <SSH_USER>\n    StrictHostKeyChecking no' >> /root/.ssh/config
+
+WORKDIR /go/src/git.example.com/my_project.git
+COPY . /go/src/git.example.com/my_project.git
+ 
+# If the app is static, disable CGO to be able to use scratch as the base of the final image.
+RUN go mod download \
+ && CGO_ENABLED=0 go build -tags static main.go
+ 
+FROM scratch
+
+# If there is any kind of network involved in the app, get the ca-certificates.crt from the builder image, otherwise it won't work.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+# Get the binary from the builder.
+COPY --from=builder /go/src/git.example.com/my_project.git/main /app
+ 
+# Run the container with a UID not used by any other user of the host
+USER 12345
+ 
+ENTRYPOINT ["/app"]

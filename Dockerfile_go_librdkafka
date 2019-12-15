@@ -1,0 +1,28 @@
+FROM golang:1.13.0-stretch AS builder
+
+ARG LIBRDKAFKA_VERSION=1.2.0
+
+# Install librdkafka
+RUN curl -L https://github.com/edenhill/librdkafka/archive/v$LIBRDKAFKA_VERSION.tar.gz | tar xzf - \
+ && cd librdkafka-$LIBRDKAFKA_VERSION \
+ && ./configure --prefix=/usr \
+ && make -j \
+ && make install
+
+WORKDIR /go/src/github.com/ay0o/my_project.git
+COPY . /go/src/github.com/ay0o/my_project.git
+
+RUN go mod download \
+ # Final image is ubuntu, so set GOOS and GOARCH to compile only for that architecture
+ && GOOS=linux GOARCH=amd64 go build main.go
+
+# Scratch image cannot be used when the app has system dependencies
+FROM ubuntu:bionic
+
+COPY --from=builder /usr/lib/librdkafka* /usr/lib/
+COPY --from=builder /go/src/github.com/ay0o/my_project.git/main /app
+
+USER 12345
+
+ENTRYPOINT ["/app"]
+

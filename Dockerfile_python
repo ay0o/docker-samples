@@ -1,0 +1,31 @@
+FROM python:3.7-slim AS builder
+
+WORKDIR /root
+# In case you have a private repo or any other pip config
+# COPY pip.conf ./pip/pip.conf
+
+RUN apt-get -qq update && apt-get -qq install --no-install-recommends build-essential
+
+# Using a virtualenv so that later we can copy the whole package to the final image
+RUN python -m venv venv
+# PATH is modified to give priority to the virtualenv
+ENV PATH="/root/venv/bin:$PATH"
+
+COPY requirements.txt .
+# Install requirements into the virtualenv
+RUN pip install -r requirements.txt
+
+FROM python:3.7-slim
+
+# Create a new user to do not launch the app as root
+RUN useradd -u 12345 -m launcher
+WORKDIR /home/launcher
+COPY --chown=launcher:launcher --from=builder /root/venv /home/launcher/venv
+
+# Modify PATH to use the virtualenv
+ENV PATH="/home/launcher/venv/bin:$PATH"
+
+COPY --chown=launcher:launcher app.py .
+
+USER launcher
+ENTRYPOINT ["python", "app.py"]
